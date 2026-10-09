@@ -1,0 +1,15 @@
+Port 2222
+ListenAddress 0.0.0.0
+PidFile /run/sshd.pid
+PermitRootLogin no
+AllowUsers tmendis
+PasswordAuthentication yes
+PubkeyAuthentication no
+UsePAM no
+MaxAuthTries 4
+LoginGraceTime 30
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+LogLevel INFO
