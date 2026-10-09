@@ -1,0 +1,129 @@
+# CampusNet Rescue - CTF Play Box (IE3132 Assignment 02)
+# Control layer (CTFd+MariaDB+Redis+Nginx) and challenge layer (stage4, stage6) live on SEPARATE networks.
+name: campusnet-rescue
+
+services:
+  nginx:
+    image: nginx:1.27.1-alpine
+    restart: unless-stopped
+    depends_on: [ctfd]
+    ports: ["${LAB_BIND_IP:-127.0.0.1}:443:443", "${LAB_BIND_IP:-127.0.0.1}:80:80"]
+    volumes:
+      - ./platform/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./platform/certs:/etc/nginx/certs:ro
+      - nginx_logs:/var/log/nginx
+    networks: [control_net]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
+
+  ctfd:
+    image: ctfd/ctfd:3.7.7
+    restart: unless-stopped
+    depends_on: [db, cache]
+    environment:
+      SECRET_KEY: ${CTFD_SECRET_KEY}
+      DATABASE_URL: mysql+pymysql://ctfd:${MYSQL_PASSWORD}@db/ctfd
+      REDIS_URL: redis://cache:6379
+      REVERSE_PROXY: "true"
+      WORKERS: "2"
+      LOG_FOLDER: /var/log/CTFd
+    volumes:
+      - ctfd_uploads:/var/uploads
+      - ctfd_logs:/var/log/CTFd
+    networks: [control_net]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    pids_limit: 200
+
+  db:
+    image: mariadb:10.11.9
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_USER: ctfd
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD}
+      MARIADB_DATABASE: ctfd
+    command: [mysqld, --character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --max_connections=200]
+    volumes: [db_data:/var/lib/mysql]
+    networks: [control_net]           # reachable ONLY by CTFd (no published port)
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 200
+
+  cache:
+    image: redis:7.2.5-alpine
+    restart: unless-stopped
+    networks: [control_net]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 50
+
+  # ---------------- challenge layer (intentionally vulnerable) ----------------
+  stage4:
+    build: ./challenges/cnr-04-web
+    image: campusnet/cnr-04-portal:1.0
+    restart: unless-stopped
+    ports: ["${LAB_BIND_IP:-127.0.0.1}:8081:8081"]
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp:size=16m,noexec,nosuid", "/data:size=8m,noexec,nosuid,uid=10001"]   # ephemeral DB: reset = recreate
+    secrets: [stage4_flag]
+    environment: { PORTAL_ID: LANTERNGATE, FLAG_FILE: /run/secrets/stage4_flag, DB_PATH: /data/portal.db }
+    networks: { challenge_net: { ipv4_address: 10.50.0.30 } }
+    dns: ["192.0.2.53"]                 # unroutable resolver: no name resolution/DNS tunnelling out of the challenge net
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    logging: { driver: json-file, options: { max-size: "5m", max-file: "3" } }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8081/healthz',timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  stage6:
+    build:
+      context: ./challenges/cnr-06-network-linux
+      args: { SSH_PASSWORD: "${SSH_PASSWORD}" }
+    image: campusnet/cnr-06-linux:1.0
+    restart: "no"                      # disposable: recreated by scripts/reset.sh
+    ports: ["${LAB_BIND_IP:-127.0.0.1}:2222:2222"]
+    read_only: true
+    tmpfs:
+      - /run:size=1m,mode=755
+      - /tmp:size=4m,noexec,nosuid
+      - /srv/campus-archive:size=1m,mode=750,uid=0,gid=3001,nosuid,noexec   # flag written here at start (never in image layers)
+    secrets: [stage6_flag]
+    networks: { challenge_net: { ipv4_address: 10.50.0.31 } }
+    dns: ["192.0.2.53"]                 # unroutable resolver: no name resolution/DNS tunnelling out of the challenge net
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID, SYS_CHROOT]    # minimum for sshd privilege separation
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    logging: { driver: json-file, options: { max-size: "5m", max-file: "3" } }
+
+secrets:
+  stage4_flag: { file: ./secrets/stage4_flag.txt }
+  stage6_flag: { file: ./secrets/stage6_flag.txt }
+
+networks:
+  control_net:
+    driver: bridge
+    ipam: { config: [{ subnet: 10.40.0.0/24 }] }
+  challenge_net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"   # no NAT => no outbound internet from challenge containers
+    ipam: { config: [{ subnet: 10.50.0.0/24 }] }
+
+volumes: { db_data: {}, ctfd_uploads: {}, ctfd_logs: {}, nginx_logs: {} }
