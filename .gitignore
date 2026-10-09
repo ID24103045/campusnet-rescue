@@ -1,0 +1,5 @@
+.env
+.ctfd_token
+secrets/*.txt
+platform/certs/
+__pycache__/
