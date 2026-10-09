@@ -1,0 +1,18 @@
+{
+  "_note": "AUTHOR ONLY. Real flags + shared build parameters. Never give this file to participants.",
+  "cnr01": "IE3132{NX-7741}",
+  "cnr02": "IE3132{lakeview_press_0417}",
+  "cnr03": "IE3132{lanterngate_HARBOR-2291}",
+  "cnr04": "IE3132{staff_gate_bypass_5c3e}",
+  "cnr05": "IE3132{tmendis_lantern-dataset-zip_20260314T095217Z}",
+  "cnr06": "IE3132{ssh_2222_labaudit_9d41b7}",
+  "params": {
+    "lab_code": "NX-7741",
+    "stego_note_tag": "lakeview_press_0417",
+    "vigenere_key": "LAKEVIEW",
+    "portal_id": "LANTERNGATE",
+    "portal_token": "HARBOR-2291",
+    "incident_account": "tmendis",
+    "ssh_password": "NX-7741_lanterngate"
+  }
+}
